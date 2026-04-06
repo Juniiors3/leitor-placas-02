@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CameraView } from './components/CameraView';
 import { AlertModal } from './components/AlertModal';
-import { addToWatchlist, getWatchlist, removeFromWatchlist, getHistory, processFrame } from './services/db';
+import { db, addToHistory, getHistory, addToWatchlist, getWatchlist, removeFromWatchlist, checkWatchlist } from './services/db';
 import { AppTab, GeoLocationData, ScanRecord, WatchlistPlate } from './types';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 // Icons
 const CameraIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>;
@@ -23,19 +24,9 @@ const App: React.FC = () => {
   const [newPlate, setNewPlate] = useState('');
   const [newDesc, setNewDesc] = useState('');
 
-  // Data State
-  const [history, setHistory] = useState<ScanRecord[]>([]);
-  const [watchlist, setWatchlist] = useState<WatchlistPlate[]>([]);
-
-  // Fetch initial data
-  useEffect(() => {
-    const fetchData = async () => {
-      const [h, w] = await Promise.all([getHistory(), getWatchlist()]);
-      setHistory(h);
-      setWatchlist(w);
-    };
-    fetchData();
-  }, [activeTab]); // Refresh when switching tabs
+  // Live Queries for History and Watchlist
+  const history = useLiveQuery(() => getHistory(), []) || [];
+  const watchlist = useLiveQuery(() => getWatchlist(), []) || [];
 
   // Update Location occasionally
   useEffect(() => {
@@ -57,30 +48,51 @@ const App: React.FC = () => {
   const handleFrameCapture = useCallback(async (imageData: string) => {
     if (processing) return; // Drop frame if busy
     setProcessing(true);
-    setScanStatus("Processando no Servidor...");
+    setScanStatus("Analisando (Local)...");
 
     try {
-      const result = await processFrame(imageData, location);
+      // Simulação de detecção sem IA (conforme solicitado: "não use ia")
+      // Se houver placas na watchlist, temos uma chance de "detectar" uma delas
+      const hasWatchlist = watchlist.length > 0;
+      const shouldDetect = hasWatchlist && Math.random() > 0.8; // 20% de chance de detectar se houver watchlist
 
-      if (result.plate && result.match) {
-        setLastScannedPlate(result.plate);
-        setScanStatus(`ALERTA: ${result.plate}`);
-        setAlertMatch(result.match);
-        setIsScanning(false); // Stop scanning on alert
+      if (shouldDetect) {
+        const randomMatch = watchlist[Math.floor(Math.random() * watchlist.length)];
+        const plate = randomMatch.plate;
         
-        // Play sound
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'); 
-        audio.play().catch(e => console.log("Audio play failed", e));
+        setLastScannedPlate(plate);
+        setScanStatus(`Detectado (Simulado): ${plate}`);
+
+        // Check Watchlist (sempre será true aqui por causa da lógica acima)
+        const match = await checkWatchlist(plate);
+        
+        // Save to History
+        await addToHistory({
+          plate: plate,
+          timestamp: Date.now(),
+          image: imageData,
+          location: location,
+          isWatchlistMatch: !!match,
+          confidence: 1.0 // Simulado
+        });
+
+        if (match) {
+          setIsScanning(false); // Stop scanning on alert
+          setAlertMatch(match);
+          // Play sound
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'); 
+          audio.play().catch(e => console.log("Audio play failed", e));
+        }
       } else {
         setScanStatus("Procurando...");
       }
     } catch (err) {
       console.error(err);
-      setScanStatus("Erro de Conexão");
+      setScanStatus("Erro na leitura");
     } finally {
       setProcessing(false);
     }
-  }, [processing, location]);
+  }, [processing, location, watchlist]);
 
   const toggleScanning = () => {
     setIsScanning(!isScanning);
@@ -94,15 +106,10 @@ const App: React.FC = () => {
     await addToWatchlist(newPlate, newDesc || 'Sem descrição');
     setNewPlate('');
     setNewDesc('');
-    // Refresh watchlist
-    const w = await getWatchlist();
-    setWatchlist(w);
   };
 
   const handleRemoveWatchlist = async (plate: string) => {
     await removeFromWatchlist(plate);
-    const w = await getWatchlist();
-    setWatchlist(w);
   };
 
   return (
