@@ -1,47 +1,50 @@
-import Dexie, { Table } from 'dexie';
 import { ScanRecord, WatchlistPlate } from '../types';
 
-class SentinelDatabase extends Dexie {
-  scans!: Table<ScanRecord, number>;
-  watchlist!: Table<WatchlistPlate, string>;
-
-  constructor() {
-    super('SentinelDB');
-    (this as any).version(1).stores({
-      scans: '++id, plate, timestamp, isWatchlistMatch',
-      watchlist: 'plate, addedAt'
-    });
-  }
-}
-
-export const db = new SentinelDatabase();
+const API_URL = '/api';
 
 export const addToHistory = async (record: ScanRecord) => {
-  return await db.scans.add(record);
+  // History is handled by the server in process-frame for matches
+  // But we can still have a dedicated endpoint if needed
+  return null;
 };
 
 export const getHistory = async (limit = 50) => {
-  return await db.scans.orderBy('timestamp').reverse().limit(limit).toArray();
+  const response = await fetch(`${API_URL}/history`);
+  return await response.json();
 };
 
 export const addToWatchlist = async (plate: string, description: string) => {
   const cleanPlate = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return await db.watchlist.put({
-    plate: cleanPlate,
-    description,
-    addedAt: Date.now()
+  const response = await fetch(`${API_URL}/watchlist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plate: cleanPlate, description })
   });
+  return await response.json();
 };
 
 export const removeFromWatchlist = async (plate: string) => {
-  return await db.watchlist.delete(plate);
+  const response = await fetch(`${API_URL}/watchlist/${plate}`, {
+    method: 'DELETE'
+  });
+  return await response.json();
 };
 
 export const getWatchlist = async () => {
-  return await db.watchlist.toArray();
+  const response = await fetch(`${API_URL}/watchlist`);
+  return await response.json();
 };
 
 export const checkWatchlist = async (plate: string): Promise<WatchlistPlate | undefined> => {
-  const cleanPlate = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return await db.watchlist.get(cleanPlate);
+  // Server-side check is done in process-frame
+  return undefined;
+};
+
+export const processFrame = async (image: string, location?: any) => {
+  const response = await fetch(`${API_URL}/process-frame`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image, location })
+  });
+  return await response.json();
 };
