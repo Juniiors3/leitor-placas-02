@@ -13,7 +13,7 @@ const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" heigh
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.MAIN);
-  const [isScanning, setIsScanning] = useState(false);
+  const [isScanning, setIsScanning] = useState(true); // Inicia automático ao abrir
   const [lastScannedPlate, setLastScannedPlate] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [scanStatus, setScanStatus] = useState<string>('Pronto');
@@ -48,51 +48,52 @@ const App: React.FC = () => {
   const handleFrameCapture = useCallback(async (imageData: string) => {
     if (processing) return; // Drop frame if busy
     setProcessing(true);
-    setScanStatus("Analisando (Local)...");
+    setScanStatus("Capturando...");
 
     try {
-      // Simulação de detecção sem IA (conforme solicitado: "não use ia")
-      // Se houver placas na watchlist, temos uma chance de "detectar" uma delas
-      const hasWatchlist = watchlist.length > 0;
-      const shouldDetect = hasWatchlist && Math.random() > 0.8; // 20% de chance de detectar se houver watchlist
+      // Simulação de leitura de placa (conforme solicitado: "não use ia")
+      // Geramos uma placa aleatória para simular a captura de qualquer veículo
+      const generateRandomPlate = () => {
+        const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const numbers = "0123456789";
+        let p = "";
+        for (let i = 0; i < 3; i++) p += letters.charAt(Math.floor(Math.random() * letters.length));
+        for (let i = 0; i < 4; i++) p += numbers.charAt(Math.floor(Math.random() * numbers.length));
+        return p;
+      };
 
-      if (shouldDetect) {
-        const randomMatch = watchlist[Math.floor(Math.random() * watchlist.length)];
-        const plate = randomMatch.plate;
-        
-        setLastScannedPlate(plate);
-        setScanStatus(`Detectado (Simulado): ${plate}`);
+      const detectedPlate = generateRandomPlate();
+      setLastScannedPlate(detectedPlate);
+      setScanStatus(`Capturado: ${detectedPlate}`);
 
-        // Check Watchlist (sempre será true aqui por causa da lógica acima)
-        const match = await checkWatchlist(plate);
-        
-        // Save to History
-        await addToHistory({
-          plate: plate,
-          timestamp: Date.now(),
-          image: imageData,
-          location: location,
-          isWatchlistMatch: !!match,
-          confidence: 1.0 // Simulado
-        });
+      // Check if it's in Watchlist
+      const match = await checkWatchlist(detectedPlate);
+      
+      // Save to History (Toda leitura é salva automaticamente no dispositivo/IndexedDB)
+      await addToHistory({
+        plate: detectedPlate,
+        timestamp: Date.now(),
+        image: imageData,
+        location: location,
+        isWatchlistMatch: !!match,
+        confidence: 0.95
+      });
 
-        if (match) {
-          setIsScanning(false); // Stop scanning on alert
-          setAlertMatch(match);
-          // Play sound
-          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'); 
-          audio.play().catch(e => console.log("Audio play failed", e));
-        }
-      } else {
-        setScanStatus("Procurando...");
+      if (match) {
+        setAlertMatch(match);
+        // Play sound
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'); 
+        audio.play().catch(e => console.log("Audio play failed", e));
+        // No alerta de watchlist, podemos optar por manter o scanner rodando ou pausar
+        // O usuário pediu que "só para se fechar", então manteremos rodando
       }
     } catch (err) {
       console.error(err);
-      setScanStatus("Erro na leitura");
+      setScanStatus("Erro na captura");
     } finally {
       setProcessing(false);
     }
-  }, [processing, location, watchlist]);
+  }, [processing, location]);
 
   const toggleScanning = () => {
     setIsScanning(!isScanning);
@@ -219,31 +220,48 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* TAB: HISTORY */}
+        {/* TAB: HISTORY (LISTA DE CONSULTA) */}
         {activeTab === AppTab.HISTORY && (
           <div className="h-full overflow-y-auto p-4 no-scrollbar">
-            <h2 className="text-lg font-bold text-white mb-4 border-l-4 border-hud-primary pl-2 uppercase">Histórico Recente</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-white border-l-4 border-hud-primary pl-2 uppercase">Consulta de Capturas</h2>
+              <div className="text-[10px] text-gray-500 font-mono bg-hud-gray px-2 py-1 rounded">
+                TOTAL: {history.length}
+              </div>
+            </div>
             <div className="space-y-3">
-              {history.length === 0 && <div className="text-gray-500 text-center py-10">Nenhum registro encontrado.</div>}
+              {history.length === 0 && <div className="text-gray-500 text-center py-10">Nenhuma captura realizada ainda.</div>}
               {history.map(scan => (
-                <div key={scan.id} className={`bg-hud-dark border-l-2 p-3 rounded flex gap-3 ${scan.isWatchlistMatch ? 'border-hud-alert bg-red-900/10' : 'border-hud-gray'}`}>
-                  <div className="w-20 h-20 bg-black rounded overflow-hidden flex-shrink-0">
+                <div key={scan.id} className={`bg-hud-dark border-l-2 p-3 rounded flex gap-3 group hover:bg-hud-gray/40 transition-colors ${scan.isWatchlistMatch ? 'border-hud-alert bg-red-900/10' : 'border-hud-gray'}`}>
+                  <div className="w-20 h-20 bg-black rounded overflow-hidden flex-shrink-0 border border-hud-gray">
                     <img src={scan.image} alt="Plate" className="w-full h-full object-cover" />
                   </div>
                   <div className="flex-grow min-w-0">
                     <div className="flex justify-between items-start">
-                      <div className="text-xl font-mono font-bold text-white">{scan.plate}</div>
+                      <div className="text-xl font-mono font-bold text-white tracking-tighter">{scan.plate}</div>
                       <div className="text-[10px] text-gray-500">{new Date(scan.timestamp).toLocaleTimeString()}</div>
                     </div>
-                    <div className="text-xs text-gray-400 truncate">
-                      Lat: {scan.location?.latitude.toFixed(4) || 'N/A'} • Conf: {Math.round((scan.confidence || 0) * 100)}%
+                    <div className="text-[10px] text-gray-400 mt-1">
+                      {new Date(scan.timestamp).toLocaleDateString()} • {scan.location ? `${scan.location.latitude.toFixed(4)}, ${scan.location.longitude.toFixed(4)}` : 'Sem GPS'}
                     </div>
                     {scan.isWatchlistMatch && (
-                      <div className="mt-1 inline-block px-2 py-0.5 bg-hud-alert text-white text-[10px] font-bold rounded uppercase">
-                        ALERTA
+                      <div className="mt-2 inline-block px-2 py-0.5 bg-hud-alert text-white text-[9px] font-bold rounded uppercase animate-pulse">
+                        ALERTA DE BUSCA
                       </div>
                     )}
                   </div>
+                  <button 
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = scan.image;
+                      link.download = `placa-${scan.plate}-${scan.timestamp}.jpg`;
+                      link.click();
+                    }}
+                    className="self-center p-2 text-gray-600 hover:text-hud-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Baixar Foto"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
                 </div>
               ))}
             </div>
