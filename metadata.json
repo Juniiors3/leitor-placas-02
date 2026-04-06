@@ -1,0 +1,8 @@
+{
+  "name": "AutoPlate Sentinel",
+  "description": "Automatic License Plate Recognition (ALPR) system using Gemini Vision. Detects Brazilian and Mercosur plates, logs history with location, and alerts on watchlist matches.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
